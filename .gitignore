@@ -1,4 +1,6 @@
 .DS_Store
+**/*.log
+.vscode
 CMakeLists.txt.user
 CMakeCache.txt
 CMakeFiles

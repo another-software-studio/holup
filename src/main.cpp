@@ -1,105 +1,81 @@
-#include <boost/beast/version.hpp>
-#include <boost/asio/ip/tcp.hpp>
-#include <boost/beast/core.hpp>
-#include <boost/beast/http.hpp>
-#include <boost/config.hpp>
+#include "request.hpp"
 
+#include <ftxui/dom/elements.hpp>
+#include <ftxui/dom/table.hpp>
+
+#include <ftxui/component/screen_interactive.hpp>
+#include <ftxui/component/component.hpp>
+
+#include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/spdlog.h>
 
+#include <iostream>
+#include <vector>
+#include <chrono>
 #include <thread>
 #include <string>
 #include <memory>
+#include <list>
 
-#define ARG_ERROR 1
-#define UNX_ERROR 2
-#define DEF_PORT 9999
-#define DEF_HOST "0.0.0.0"
+#define AUTHOR "anothersoftware.studio"
+#define INT_MODE "--INTERCEPT--"
+#define EDT_MODE "--EDIT--"
+#define LOG_FILENAME "holup.log"
 
-namespace beast = boost::beast;
-namespace http  = beast::http;
-namespace net   = boost::asio;
-    using tcp   = boost::asio::ip::tcp;
+#define DEBUG
+#define R_SUCCESS 0
 
-template<typename Body, typename Allocator>
-http::message_generator handle_request(http::request<Body, http::basic_fields<Allocator>>&& req) {
-    spdlog::info("handling request");
-    http::response<http::empty_body> res{http::status::ok, req.version()};
-    res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
-    res.set(http::field::content_type, "application/text");
-    res.keep_alive(req.keep_alive());
-    spdlog::info("sending response back");
-
-    return res;
-}
-
-void do_session(tcp::socket& socket) {
-    spdlog::info("request received");
-    beast::error_code ec;
-    beast::flat_buffer buffer;
-
-    while(true) {
-        http::request<http::string_body> req;
-        spdlog::info("reading request");
-        http::read(socket, buffer, req, ec);
-
-        if (http::error::end_of_stream == ec) {
-            break;
-        }
-        if (ec) {
-            return spdlog::error("{0} read", ec.message());
-        }
-
-        spdlog::info("after stream check");
-        http::message_generator msg =
-            handle_request(std::move(req));
-
-        bool keep_alive = msg.keep_alive();
-        beast::write(socket, std::move(msg), ec);
-
-        if (ec) {
-            return spdlog::error("{0} write", ec.message());
-        }
-        if (!keep_alive) {
-            break;
-        }
-    }
-    socket.shutdown(tcp::socket::shutdown_send, ec);
-}
+std::list<holup::RequestEntry> request_entries{
+    {8, holup::Method::POST,    "testwb.com",    "/"},
+    {7, holup::Method::GET,     "testwb.com", "search=xyz"},
+    {6, holup::Method::CONNECT, "testwb.com", "search=hkj"},
+    {5, holup::Method::DELETE,  "testwb.com", "search=abzs"},
+    {4, holup::Method::OPTIONS, "testwb.com", "search=ass2"},
+    {3, holup::Method::PUT,     "testwb.com", "search=dsadsa"},
+    {2, holup::Method::TRACE,   "testwb.com", "search=dsa"},
+    {1, holup::Method::HEAD,    "testwb.com", "search=dsa"}
+};
 
 int main(int argc, char* argv[]) noexcept {
-    try {
-        /* temporarily commented out - we will use default values for most of the time
-        if (argc != 2) {
-            spdlog::critical("invalid argument count; got {0}, expected {1}",
-                argc - 1, MIN_ARGC - 1);    
-            spdlog::info("Usage: holup [address] [port]");
-
-            return ARG_ERROR;
-        }*/
-
-        auto const address = net::ip::make_address(DEF_HOST);
-        auto const port    = static_cast<unsigned short>(DEF_PORT);
-        
-        net::io_context ioc{1};
-        tcp::acceptor acceptor{ioc, {address, port}};
-        spdlog::info("initialization done");
-
-        while(true) {
-            spdlog::info("listening...");
-            tcp::socket socket{ioc};
-            acceptor.accept(socket);
-
-            std::thread{std::bind(
-                &do_session,
-                std::move(socket)
-            )}.detach();
-        }
-
-    } catch(const std::exception& e) {
-        spdlog::critical("error: {0}", e.what());
-
-        return UNX_ERROR;
+    try { // Setup logger - TODO: consider adding switch to disable logging
+        auto logger = spdlog::basic_logger_mt("basic_logger", LOG_FILENAME);
+        spdlog::set_default_logger(logger);
+        spdlog::set_level(spdlog::level::trace);
+        spdlog::flush_on(spdlog::level::info);
+    } catch (const spdlog::spdlog_ex &ex) {
+        std::cout << "Log init failed: " << ex.what() << std::endl;
     }
+
+    auto render = [&]() -> ftxui::Element {
+        std::vector<ftxui::Element> entries;
+        for (auto& entry : request_entries) {
+            entries.push_back(entry.Render());
+        }
+        // auto table = ftxui::Table(entries);
+
+        // TODO: try table
+        return ftxui::vbox(std::move(entries));
+    };
+
+    auto component = ftxui::Renderer([&]() -> ftxui::Element {
+        return ftxui::vbox({
+                ftxui::hbox({
+                    render() | ftxui::border,
+                    ftxui::vbox({
+                        ftxui::text("body editor") | ftxui::flex,
+                        ftxui::separator(),
+                        ftxui::text("header editor") | ftxui::flex
+                    }) | ftxui::border | ftxui::flex
+                }), ftxui::hbox({
+                    ftxui::text(INT_MODE) | ftxui::bold | ftxui::flex,
+                    ftxui::filler(),
+                    ftxui::text(AUTHOR)
+                        | ftxui::hyperlink("https://anothersoftware.studio")
+                })
+        }) | ftxui::flex;
+    });
+    auto screen = ftxui::ScreenInteractive::Fullscreen();
+    screen.Loop(component);
     
-    return 0;
+    return R_SUCCESS;
 }
